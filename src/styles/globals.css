@@ -1,0 +1,253 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --mouse-x: 50%;
+    --mouse-y: 50%;
+  }
+
+  * {
+    @apply border-nexus-border;
+  }
+
+  html {
+    @apply bg-nexus-black text-white;
+    font-family: 'SF Pro Display', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-nexus-black overflow-x-hidden;
+    background-image: 
+      radial-gradient(at 20% 80%, rgba(0, 255, 136, 0.05) 0px, transparent 50%),
+      radial-gradient(at 80% 20%, rgba(0, 229, 255, 0.03) 0px, transparent 50%),
+      radial-gradient(at 40% 40%, rgba(255, 215, 0, 0.02) 0px, transparent 50%);
+  }
+
+  ::selection {
+    @apply bg-nexus-accent/20 text-nexus-accent;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-nexus-darker;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-nexus-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-nexus-lighter;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-nexus-glass backdrop-blur-2xl border border-nexus-glass-border rounded-2xl;
+    box-shadow: 
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+      0 10px 40px -10px rgba(0, 0, 0, 0.5);
+  }
+
+  .glass-panel-elevated {
+    @apply glass-panel;
+    box-shadow: 
+      0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+      0 20px 50px -20px rgba(0, 0, 0, 0.8),
+      0 0 100px -40px rgba(0, 255, 136, 0.1);
+  }
+
+  .glass-button {
+    @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+    @apply bg-nexus-glass backdrop-blur-xl border border-nexus-glass-border;
+    @apply hover:bg-white/5 hover:border-white/10;
+    @apply active:scale-[0.98];
+    box-shadow: 
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+      0 4px 12px -4px rgba(0, 0, 0, 0.4);
+  }
+
+  .glass-button-primary {
+    @apply glass-button;
+    @apply bg-nexus-accent/10 border-nexus-accent/30 text-nexus-accent;
+    @apply hover:bg-nexus-accent/20 hover:border-nexus-accent/50;
+    box-shadow: 
+      0 0 0 1px rgba(0, 255, 136, 0.1) inset,
+      0 4px 12px -4px rgba(0, 255, 136, 0.2),
+      0 0 40px -20px rgba(0, 255, 136, 0.4);
+  }
+
+  .glass-input {
+    @apply w-full px-4 py-3 rounded-xl bg-nexus-glass backdrop-blur-xl;
+    @apply border border-nexus-glass-border;
+    @apply focus:bg-white/5 focus:border-nexus-accent/30 focus:outline-none;
+    @apply placeholder-white/30 text-white;
+    @apply transition-all duration-200;
+    box-shadow: 
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+      0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-textarea {
+    @apply glass-input resize-none;
+    @apply font-mono text-sm;
+  }
+
+  .nexus-glow {
+    position: relative;
+  }
+
+  .nexus-glow::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(45deg, transparent, rgba(0, 255, 136, 0.3), transparent);
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+
+  .nexus-glow:hover::before {
+    opacity: 1;
+  }
+
+  .chain-badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+    @apply bg-nexus-glass backdrop-blur-xl border border-nexus-glass-border;
+  }
+
+  .data-grid {
+    @apply grid gap-4;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  .mono-display {
+    @apply font-mono text-xs text-white/70 break-all;
+    @apply bg-black/30 px-2 py-1 rounded-lg;
+  }
+
+  .status-indicator {
+    @apply w-2 h-2 rounded-full animate-pulse;
+  }
+
+  .status-online {
+    @apply status-indicator bg-nexus-accent;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  }
+
+  .status-offline {
+    @apply status-indicator bg-red-500;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  }
+
+  .nexus-divider {
+    @apply h-px bg-gradient-to-r from-transparent via-nexus-glass-border to-transparent;
+  }
+
+  .shimmer {
+    @apply relative overflow-hidden;
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.03),
+      transparent
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-nexus-accent via-nexus-cyan to-nexus-accent;
+    @apply bg-clip-text text-transparent;
+    background-size: 200% 100%;
+    animation: gradient-shift 3s ease infinite;
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  .hover-lift {
+    @apply transition-transform duration-300 ease-out;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-4px);
+  }
+
+  .pulse-border {
+    animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-border {
+    0%, 100% {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    50% {
+      border-color: rgba(0, 255, 136, 0.3);
+    }
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mask-gradient {
+    mask-image: linear-gradient(to bottom, black 80%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent);
+  }
+
+  .writing-vertical {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .transform-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+}

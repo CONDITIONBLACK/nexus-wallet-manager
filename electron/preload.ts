@@ -1,0 +1,25 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('electronAPI', {
+  // Database operations
+  initDatabase: (password: string) => ipcRenderer.invoke('init-database', password),
+  verifyPassword: (password: string) => ipcRenderer.invoke('verify-password', password),
+  
+  // Wallet operations
+  storeWallet: (walletData: any) => ipcRenderer.invoke('store-wallet', walletData),
+  getWallets: (filters?: any) => ipcRenderer.invoke('get-wallets', filters),
+  updateBalance: (walletId: number, balance: string) => ipcRenderer.invoke('update-balance', walletId, balance),
+  exportWallet: (walletId: number, format: string) => ipcRenderer.invoke('export-wallet', walletId, format),
+  deleteWallet: (walletId: number) => ipcRenderer.invoke('delete-wallet', walletId),
+  deleteWallets: (walletIds: number[]) => ipcRenderer.invoke('delete-wallets', walletIds),
+  
+  // RPC node operations
+  addRpcNode: (nodeData: any) => ipcRenderer.invoke('add-rpc-node', nodeData),
+  getRpcNodes: (chain?: string) => ipcRenderer.invoke('get-rpc-nodes', chain),
+  
+  // System operations
+  showSaveDialog: (options: any) => ipcRenderer.invoke('show-save-dialog', options),
+  showOpenDialog: (options: any) => ipcRenderer.invoke('show-open-dialog', options),
+});
