@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, systemPreferences } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcrypt';
 import CryptoJS from 'crypto-js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +36,14 @@ function initIdentityDatabase() {
         is_active BOOLEAN DEFAULT 0
       );
       
+      CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        value TEXT NOT NULL
+      );
+      
       CREATE INDEX IF NOT EXISTS idx_identities_name ON identities(name);
+      CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
     `);
     
     console.log('Identity database initialized');
@@ -685,6 +694,274 @@ ipcMain.handle('get-current-identity', async () => {
   } catch (error) {
     console.error('Get current identity error:', error);
     return null;
+  }
+});
+
+// Biometric Authentication utilities
+const execAsync = promisify(exec);
+
+async function checkBiometricCapabilities() {
+  try {
+    if (process.platform === 'darwin') {
+      // Check for Touch ID/Face ID on macOS
+      const canPrompt = systemPreferences.canPromptTouchID();
+      
+      if (canPrompt) {
+        // Try to determine if it's Touch ID or Face ID
+        try {
+          const { stdout } = await execAsync('system_profiler SPHardwareDataType | grep "Touch ID"');
+          const biometryType = stdout.includes('Touch ID') ? 'touchID' : 'faceID';
+          
+          return {
+            available: true,
+            biometryType,
+          };
+        } catch {
+          // Fallback - assume Face ID if Touch ID not found
+          return {
+            available: true,
+            biometryType: 'faceID',
+          };
+        }
+      }
+    } else if (process.platform === 'win32') {
+      // Check for Windows Hello
+      try {
+        const { stdout } = await execAsync('powershell "Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Hello-Face"');
+        const faceAvailable = stdout.includes('Enabled');
+        
+        if (faceAvailable) {
+          return {
+            available: true,
+            biometryType: 'faceID',
+          };
+        }
+      } catch (error) {
+        console.log('Windows Hello check failed:', error);
+      }
+    }
+
+    return {
+      available: false,
+      biometryType: 'none',
+      error: 'Biometric authentication not available on this platform'
+    };
+  } catch (error) {
+    console.error('Error checking biometric capabilities:', error);
+    return {
+      available: false,
+      biometryType: 'none',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+async function authenticateWithBiometrics(reason: string) {
+  try {
+    if (process.platform === 'darwin') {
+      // Use Touch ID/Face ID on macOS
+      await systemPreferences.promptTouchID(reason);
+      return { success: true };
+    } else if (process.platform === 'win32') {
+      // Use Windows Hello
+      try {
+        await execAsync('powershell "if (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Hello-Face | Where-Object {$_.State -eq \'Enabled\'}) { Write-Output \'success\' } else { throw \'Windows Hello not available\' }"');
+        return { success: true };
+      } catch (error) {
+        return { 
+          success: false, 
+          error: 'Windows Hello authentication failed',
+          errorCode: 'AUTH_FAILED'
+        };
+      }
+    }
+
+    return { 
+      success: false, 
+      error: 'Biometric authentication not supported on this platform',
+      errorCode: 'NOT_SUPPORTED'
+    };
+  } catch (error) {
+    console.error('Biometric authentication error:', error);
+    
+    // Handle specific Touch ID errors
+    if (error instanceof Error) {
+      if (error.message.includes('User canceled')) {
+        return { 
+          success: false, 
+          error: 'Authentication was canceled by user',
+          errorCode: 'USER_CANCEL'
+        };
+      } else if (error.message.includes('not enrolled')) {
+        return { 
+          success: false, 
+          error: 'No biometric data enrolled',
+          errorCode: 'NOT_ENROLLED'
+        };
+      }
+    }
+
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Biometric authentication failed',
+      errorCode: 'AUTH_FAILED'
+    };
+  }
+}
+
+// Biometric authentication IPC handlers
+ipcMain.handle('check-biometric-capabilities', async () => {
+  return await checkBiometricCapabilities();
+});
+
+ipcMain.handle('authenticate-with-biometrics', async (_, reason: string) => {
+  return await authenticateWithBiometrics(reason);
+});
+
+ipcMain.handle('enable-biometric-auth', async (_, password: string) => {
+  if (!identityDb) {
+    return { success: false, error: 'Identity database not initialized' };
+  }
+
+  try {
+    // Get current identity
+    const identity = identityDb.prepare('SELECT * FROM identities WHERE is_active = 1').get() as any;
+    if (!identity) {
+      return { success: false, error: 'No active identity found' };
+    }
+
+    // Verify the provided password
+    const isValidPassword = bcrypt.compareSync(password, identity.password_hash);
+    if (!isValidPassword) {
+      return { success: false, error: 'Invalid password' };
+    }
+
+    // First check if biometrics are available
+    const capabilities = await checkBiometricCapabilities();
+    if (!capabilities.available) {
+      return { success: false, error: capabilities.error || 'Biometric authentication not available' };
+    }
+
+    // Test biometric authentication
+    const authResult = await authenticateWithBiometrics('Enable biometric authentication for Nexus Wallet Manager');
+    if (!authResult.success) {
+      return authResult;
+    }
+
+    // Encrypt and store the password for biometric unlock
+    const biometricKey = CryptoJS.SHA256(`biometric_${identity.id}_${Date.now()}`).toString();
+    const encryptedPassword = CryptoJS.AES.encrypt(password, biometricKey).toString();
+
+    // Store biometric settings
+    identityDb.prepare(`
+      INSERT OR REPLACE INTO settings (key, value) 
+      VALUES ('biometric_enabled_${identity.id}', ?)
+    `).run('true');
+
+    identityDb.prepare(`
+      INSERT OR REPLACE INTO settings (key, value) 
+      VALUES ('biometric_key_${identity.id}', ?)
+    `).run(biometricKey);
+
+    identityDb.prepare(`
+      INSERT OR REPLACE INTO settings (key, value) 
+      VALUES ('biometric_password_${identity.id}', ?)
+    `).run(encryptedPassword);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error enabling biometric auth:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to enable biometric authentication' };
+  }
+});
+
+ipcMain.handle('disable-biometric-auth', async () => {
+  if (!identityDb) {
+    return { success: false, error: 'Identity database not initialized' };
+  }
+
+  try {
+    // Get current identity
+    const identity = identityDb.prepare('SELECT * FROM identities WHERE is_active = 1').get() as any;
+    if (!identity) {
+      return { success: false, error: 'No active identity found' };
+    }
+
+    // Remove biometric settings
+    identityDb.prepare('DELETE FROM settings WHERE key = ?').run(`biometric_enabled_${identity.id}`);
+    identityDb.prepare('DELETE FROM settings WHERE key = ?').run(`biometric_key_${identity.id}`);
+    identityDb.prepare('DELETE FROM settings WHERE key = ?').run(`biometric_password_${identity.id}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error disabling biometric auth:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to disable biometric authentication' };
+  }
+});
+
+ipcMain.handle('is-biometric-auth-enabled', async () => {
+  if (!identityDb) {
+    return false;
+  }
+
+  try {
+    // Get current identity
+    const identity = identityDb.prepare('SELECT * FROM identities WHERE is_active = 1').get() as any;
+    if (!identity) {
+      return false;
+    }
+
+    const setting = identityDb.prepare('SELECT value FROM settings WHERE key = ?').get(`biometric_enabled_${identity.id}`) as any;
+    return setting?.value === 'true';
+  } catch (error) {
+    console.error('Error checking biometric auth status:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('authenticate-and-get-password', async () => {
+  if (!identityDb) {
+    return { success: false, error: 'Identity database not initialized' };
+  }
+
+  try {
+    // Get current identity
+    const identity = identityDb.prepare('SELECT * FROM identities WHERE is_active = 1').get() as any;
+    if (!identity) {
+      return { success: false, error: 'No active identity found' };
+    }
+
+    // Check if biometric auth is enabled
+    const enabledSetting = identityDb.prepare('SELECT value FROM settings WHERE key = ?').get(`biometric_enabled_${identity.id}`) as any;
+    if (enabledSetting?.value !== 'true') {
+      return { success: false, error: 'Biometric authentication not enabled' };
+    }
+
+    // Authenticate with biometrics
+    const authResult = await authenticateWithBiometrics('Authenticate to unlock Nexus Wallet Manager');
+    if (!authResult.success) {
+      return authResult;
+    }
+
+    // Retrieve stored password
+    const keySetting = identityDb.prepare('SELECT value FROM settings WHERE key = ?').get(`biometric_key_${identity.id}`) as any;
+    const passwordSetting = identityDb.prepare('SELECT value FROM settings WHERE key = ?').get(`biometric_password_${identity.id}`) as any;
+
+    if (!keySetting || !passwordSetting) {
+      return { success: false, error: 'Biometric data not found' };
+    }
+
+    // Decrypt password
+    const decryptedPassword = CryptoJS.AES.decrypt(passwordSetting.value, keySetting.value).toString(CryptoJS.enc.Utf8);
+    
+    if (!decryptedPassword) {
+      return { success: false, error: 'Failed to decrypt stored password' };
+    }
+
+    return { success: true, password: decryptedPassword };
+  } catch (error) {
+    console.error('Error authenticating and getting password:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Biometric authentication failed' };
   }
 });
 

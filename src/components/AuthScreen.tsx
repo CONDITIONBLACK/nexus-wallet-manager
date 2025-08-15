@@ -4,6 +4,7 @@ import { Lock, Shield, Eye, EyeOff, Fingerprint } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useStore } from '../stores/appStore';
 import { electronAPI } from '../utils/electron';
+import { biometricAuth } from '../services/biometricAuth';
 
 export default function AuthScreen() {
   const [password, setPassword] = useState('');
@@ -11,18 +12,68 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometryType, setBiometryType] = useState<'touchID' | 'faceID' | 'none'>('none');
   const authenticate = useStore((state) => state.authenticate);
 
   useEffect(() => {
     checkIfNewUser();
+    checkBiometricCapabilities();
   }, []);
+
+  const checkBiometricCapabilities = async () => {
+    try {
+      const capabilities = await biometricAuth.checkCapabilities();
+      setBiometricAvailable(capabilities.available);
+      setBiometryType(capabilities.biometryType);
+      
+      if (capabilities.available && !isNewUser) {
+        const enabled = await biometricAuth.isBiometricAuthEnabled();
+        setBiometricEnabled(enabled);
+      }
+    } catch (error) {
+      console.error('Error checking biometric capabilities:', error);
+    }
+  };
 
   const checkIfNewUser = async () => {
     try {
       const hasDatabase = await electronAPI.verifyPassword('');
       setIsNewUser(!hasDatabase);
+      
+      // Check biometric status after determining user type
+      if (!hasDatabase) {
+        await checkBiometricCapabilities();
+      }
     } catch {
       setIsNewUser(true);
+    }
+  };
+
+  const handleBiometricAuth = async () => {
+    if (!biometricAvailable || !biometricEnabled) return;
+    
+    setIsLoading(true);
+    try {
+      const result = await biometricAuth.authenticateAndGetPassword();
+      
+      if (result.success && result.password) {
+        const authSuccess = await authenticate(result.password);
+        if (authSuccess) {
+          toast.success(`Welcome back! Authenticated with ${biometryType === 'touchID' ? 'Touch ID' : 'Face ID'}`);
+        } else {
+          toast.error('Biometric authentication succeeded but password verification failed');
+        }
+      } else {
+        if (result.errorCode !== 'USER_CANCEL') {
+          toast.error(result.error || 'Biometric authentication failed');
+        }
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Biometric authentication failed');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -107,15 +158,47 @@ export default function AuthScreen() {
         {/* Auth form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="glass-panel p-8 space-y-6">
-            {/* Biometric indicator */}
-            <div className="flex items-center justify-center">
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
+            {/* Biometric indicator and auth */}
+            <div className="flex flex-col items-center space-y-4">
+              <motion.button
+                type="button"
+                onClick={handleBiometricAuth}
+                disabled={!biometricAvailable || !biometricEnabled || isNewUser || isLoading}
+                animate={{ 
+                  scale: biometricAvailable && biometricEnabled && !isNewUser ? [1, 1.1, 1] : 1,
+                  opacity: biometricAvailable && biometricEnabled && !isNewUser ? 1 : 0.5
+                }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="p-4 rounded-full bg-nexus-accent/10 border border-nexus-accent/30"
+                className={`p-4 rounded-full border transition-all ${
+                  biometricAvailable && biometricEnabled && !isNewUser
+                    ? 'bg-nexus-accent/10 border-nexus-accent/30 hover:bg-nexus-accent/20 cursor-pointer'
+                    : 'bg-nexus-glass border-nexus-glass-border cursor-not-allowed'
+                }`}
               >
-                <Fingerprint className="w-8 h-8 text-nexus-accent" />
-              </motion.div>
+                <Fingerprint className={`w-8 h-8 ${
+                  biometricAvailable && biometricEnabled && !isNewUser
+                    ? 'text-nexus-accent'
+                    : 'text-white/30'
+                }`} />
+              </motion.button>
+              
+              {biometricAvailable && biometricEnabled && !isNewUser && (
+                <p className="text-xs text-nexus-accent text-center">
+                  Tap to authenticate with {biometryType === 'touchID' ? 'Touch ID' : 'Face ID'}
+                </p>
+              )}
+              
+              {biometricAvailable && !biometricEnabled && !isNewUser && (
+                <p className="text-xs text-white/50 text-center">
+                  {biometryType === 'touchID' ? 'Touch ID' : 'Face ID'} available • Enable in Settings
+                </p>
+              )}
+              
+              {!biometricAvailable && (
+                <p className="text-xs text-white/30 text-center">
+                  Biometric authentication not available
+                </p>
+              )}
             </div>
 
             {/* Password input */}

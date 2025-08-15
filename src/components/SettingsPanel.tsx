@@ -1,17 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Server, Plus, X, Shield, Database, 
-  Zap
+  Zap, Fingerprint, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { useStore } from '../stores/appStore';
 import { toast } from 'react-hot-toast';
 import { electronAPI } from '../utils/electron';
+import { biometricAuth } from '../services/biometricAuth';
 
 export default function SettingsPanel() {
   const { rpcNodes, addRpcNode, removeRpcNode, clearInvalidWallets, clearAllData } = useStore();
   const [newNode, setNewNode] = useState({ chain: '', url: '', name: '' });
   const [showAddNode, setShowAddNode] = useState(false);
+  
+  // Biometric authentication state
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometryType, setBiometryType] = useState<'touchID' | 'faceID' | 'none'>('none');
+  const [showEnableBiometric, setShowEnableBiometric] = useState(false);
+  const [biometricPassword, setBiometricPassword] = useState('');
+  const [showBiometricPassword, setShowBiometricPassword] = useState(false);
+  const [isProcessingBiometric, setIsProcessingBiometric] = useState(false);
+
+  useEffect(() => {
+    checkBiometricStatus();
+  }, []);
+
+  const checkBiometricStatus = async () => {
+    try {
+      const capabilities = await biometricAuth.checkCapabilities();
+      setBiometricAvailable(capabilities.available);
+      setBiometryType(capabilities.biometryType);
+      
+      if (capabilities.available) {
+        const enabled = await biometricAuth.isBiometricAuthEnabled();
+        setBiometricEnabled(enabled);
+      }
+    } catch (error) {
+      console.error('Error checking biometric status:', error);
+    }
+  };
 
   const handleAddNode = async () => {
     if (!newNode.chain || !newNode.url) {
@@ -102,6 +131,53 @@ export default function SettingsPanel() {
     }
   };
 
+  const enableBiometricAuth = async () => {
+    if (!biometricPassword.trim()) {
+      toast.error('Please enter your password');
+      return;
+    }
+
+    setIsProcessingBiometric(true);
+    try {
+      const result = await biometricAuth.enableBiometricAuth(biometricPassword);
+      
+      if (result.success) {
+        setBiometricEnabled(true);
+        setShowEnableBiometric(false);
+        setBiometricPassword('');
+        toast.success(`${biometryType === 'touchID' ? 'Touch ID' : 'Face ID'} enabled successfully`);
+      } else {
+        toast.error(result.error || 'Failed to enable biometric authentication');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to enable biometric authentication');
+    } finally {
+      setIsProcessingBiometric(false);
+    }
+  };
+
+  const disableBiometricAuth = async () => {
+    if (!confirm(`Are you sure you want to disable ${biometryType === 'touchID' ? 'Touch ID' : 'Face ID'}?`)) {
+      return;
+    }
+
+    setIsProcessingBiometric(true);
+    try {
+      const result = await biometricAuth.disableBiometricAuth();
+      
+      if (result.success) {
+        setBiometricEnabled(false);
+        toast.success(`${biometryType === 'touchID' ? 'Touch ID' : 'Face ID'} disabled successfully`);
+      } else {
+        toast.error(result.error || 'Failed to disable biometric authentication');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to disable biometric authentication');
+    } finally {
+      setIsProcessingBiometric(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Security Settings */}
@@ -139,6 +215,107 @@ export default function SettingsPanel() {
               <div className="w-11 h-6 bg-nexus-glass peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-nexus-accent/30"></div>
             </label>
           </div>
+          
+          {/* Biometric Authentication */}
+          {biometricAvailable && (
+            <div className="border-t border-nexus-glass-border pt-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Fingerprint className="w-5 h-5 text-nexus-cyan" />
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {biometryType === 'touchID' ? 'Touch ID' : 'Face ID'}
+                    </p>
+                    <p className="text-xs text-white/50">
+                      {biometricEnabled 
+                        ? 'Biometric authentication is enabled' 
+                        : 'Enable biometric unlock for quick access'
+                      }
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  {biometricEnabled ? (
+                    <button
+                      onClick={disableBiometricAuth}
+                      disabled={isProcessingBiometric}
+                      className="glass-button text-red-400 hover:text-red-300 px-4 py-2 text-sm"
+                    >
+                      {isProcessingBiometric ? 'Disabling...' : 'Disable'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowEnableBiometric(true)}
+                      disabled={isProcessingBiometric}
+                      className="glass-button-primary px-4 py-2 text-sm"
+                    >
+                      Enable
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              {/* Enable Biometric Modal */}
+              {showEnableBiometric && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xl z-50 flex items-center justify-center p-8">
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="glass-panel-elevated w-full max-w-md p-6"
+                  >
+                    <h3 className="text-lg font-medium text-white mb-4">
+                      Enable {biometryType === 'touchID' ? 'Touch ID' : 'Face ID'}
+                    </h3>
+                    
+                    <p className="text-sm text-white/60 mb-6">
+                      Enter your master password to enable biometric authentication. Your password will be securely encrypted and stored locally.
+                    </p>
+                    
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                        <input
+                          type={showBiometricPassword ? 'text' : 'password'}
+                          value={biometricPassword}
+                          onChange={(e) => setBiometricPassword(e.target.value)}
+                          className="glass-input pl-10 pr-10"
+                          placeholder="Enter your master password"
+                          onKeyPress={(e) => e.key === 'Enter' && enableBiometricAuth()}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowBiometricPassword(!showBiometricPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                        >
+                          {showBiometricPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      
+                      <div className="flex space-x-3">
+                        <button
+                          onClick={() => {
+                            setShowEnableBiometric(false);
+                            setBiometricPassword('');
+                          }}
+                          className="flex-1 glass-button"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={enableBiometricAuth}
+                          disabled={!biometricPassword || isProcessingBiometric}
+                          className="flex-1 glass-button-primary disabled:opacity-50"
+                        >
+                          {isProcessingBiometric ? 'Enabling...' : 'Enable'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
 

@@ -30,4 +30,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   switchIdentity: (identityId: string, password: string) => ipcRenderer.invoke('switch-identity', identityId, password),
   deleteIdentity: (identityId: string) => ipcRenderer.invoke('delete-identity', identityId),
   getCurrentIdentity: () => ipcRenderer.invoke('get-current-identity'),
+  
+  // Biometric authentication
+  checkBiometricCapabilities: () => ipcRenderer.invoke('check-biometric-capabilities'),
+  authenticateWithBiometrics: (reason: string) => ipcRenderer.invoke('authenticate-with-biometrics', reason),
+  enableBiometricAuth: (password: string) => ipcRenderer.invoke('enable-biometric-auth', password),
+  disableBiometricAuth: () => ipcRenderer.invoke('disable-biometric-auth'),
+  isBiometricAuthEnabled: () => ipcRenderer.invoke('is-biometric-auth-enabled'),
+  authenticateAndGetPassword: () => ipcRenderer.invoke('authenticate-and-get-password'),
 });
