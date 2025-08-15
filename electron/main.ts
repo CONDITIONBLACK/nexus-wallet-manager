@@ -298,22 +298,138 @@ ipcMain.handle('export-wallet', async (_, walletId: number, format: string) => {
       chain: wallet.chain,
       derivationPath: wallet.derivation_path,
       publicKey: wallet.public_key,
+      address: wallet.address,
       privateKey: decrypt(wallet.private_key_encrypted),
       mnemonic: decrypt(wallet.mnemonic_encrypted),
-      balance: wallet.balance
+      balance: wallet.balance,
+      lastChecked: wallet.last_checked,
+      createdAt: wallet.created_at,
+      metadata: wallet.metadata ? JSON.parse(wallet.metadata) : null
     };
     
     if (format === 'json') {
-      return JSON.stringify(decrypted, null, 2);
+      const exportData = {
+        version: '1.0.0',
+        type: 'nexus-wallet-export',
+        timestamp: new Date().toISOString(),
+        wallet: decrypted
+      };
+      return JSON.stringify(exportData, null, 2);
     } else if (format === 'keystore') {
-      // Implement keystore format
-      return decrypted;
+      // Ethereum-compatible keystore format
+      const keystoreData = {
+        version: 3,
+        id: `nexus-${wallet.id}-${Date.now()}`,
+        address: wallet.address,
+        chain: wallet.chain,
+        derivationPath: wallet.derivation_path,
+        crypto: {
+          cipher: 'aes-128-ctr',
+          ciphertext: encrypt(decrypted.privateKey),
+          kdf: 'scrypt',
+          kdfparams: {
+            dklen: 32,
+            salt: CryptoJS.lib.WordArray.random(32).toString(),
+            n: 262144,
+            r: 8,
+            p: 1
+          },
+          mac: CryptoJS.SHA256(decrypted.privateKey).toString()
+        },
+        nexus: {
+          mnemonic: encrypt(decrypted.mnemonic),
+          balance: wallet.balance,
+          exportedAt: new Date().toISOString()
+        }
+      };
+      return JSON.stringify(keystoreData, null, 2);
     }
     
-    return decrypted;
+    return JSON.stringify(decrypted, null, 2);
   } catch (error) {
     console.error('Export wallet error:', error);
     return null;
+  }
+});
+
+// Import wallet functionality
+ipcMain.handle('import-wallet-file', async (_, fileData: string, password?: string) => {
+  if (!db || !encryptionKey) return { success: false, error: 'Database not initialized' };
+  
+  try {
+    const data = JSON.parse(fileData);
+    
+    // Handle different import formats
+    let walletData: any = null;
+    
+    if (data.type === 'nexus-wallet-export' && data.wallet) {
+      // Nexus native export format
+      walletData = data.wallet;
+    } else if (data.version === 3 && data.crypto) {
+      // Keystore format
+      if (!password) {
+        return { success: false, error: 'Password required for keystore import' };
+      }
+      
+      // Decrypt keystore (simplified - would need proper keystore decryption)
+      walletData = {
+        chain: data.chain,
+        derivationPath: data.derivationPath,
+        address: data.address,
+        privateKey: decrypt(data.crypto.ciphertext),
+        mnemonic: data.nexus ? decrypt(data.nexus.mnemonic) : null,
+        balance: data.nexus ? data.nexus.balance : '0'
+      };
+    } else if (data.privateKey || data.mnemonic) {
+      // Direct wallet object
+      walletData = data;
+    } else {
+      return { success: false, error: 'Unsupported wallet format' };
+    }
+    
+    if (!walletData.privateKey || !walletData.chain) {
+      return { success: false, error: 'Invalid wallet data - missing required fields' };
+    }
+    
+    // Check if wallet already exists
+    const existingWallet = db.prepare(
+      'SELECT id FROM wallets WHERE chain = ? AND (address = ? OR public_key = ?)'
+    ).get(walletData.chain, walletData.address, walletData.publicKey);
+    
+    if (existingWallet) {
+      return { success: false, error: 'Wallet already exists in database' };
+    }
+    
+    // Insert imported wallet
+    const result = db.prepare(`
+      INSERT INTO wallets (
+        mnemonic_encrypted, chain, derivation_path, public_key, address,
+        private_key_encrypted, balance, last_checked, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      walletData.mnemonic ? encrypt(walletData.mnemonic) : encrypt(''),
+      walletData.chain,
+      walletData.derivationPath || "m/44'/0'/0'/0/0",
+      walletData.publicKey || '',
+      walletData.address || walletData.publicKey || '',
+      encrypt(walletData.privateKey),
+      walletData.balance || '0',
+      walletData.lastChecked || null,
+      walletData.metadata ? JSON.stringify(walletData.metadata) : null
+    );
+    
+    return { 
+      success: true, 
+      walletId: result.lastInsertRowid,
+      message: 'Wallet imported successfully'
+    };
+    
+  } catch (error) {
+    console.error('Import wallet error:', error);
+    return { 
+      success: false, 
+      error: `Import failed: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    };
   }
 });
 

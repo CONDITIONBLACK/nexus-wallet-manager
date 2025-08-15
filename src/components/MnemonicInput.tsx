@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   AlertCircle, CheckCircle, Loader,
-  Plus, X, Zap, Shield, Globe, Upload, FileText
+  Plus, X, Zap, Shield, Globe, Upload, FileText, Key
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useStore } from '../stores/appStore';
 import { WalletDerivationService, CHAIN_CONFIGS } from '../services/walletDerivation';
 import { BatchBalanceChecker } from '../services/batchBalanceChecker';
 import { electronAPI } from '../utils/electron';
+import ImportWallet from './ImportWallet';
 
 export default function MnemonicInput() {
   const [mnemonics, setMnemonics] = useState<string[]>(['']);
@@ -16,7 +17,8 @@ export default function MnemonicInput() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedChains, setSelectedChains] = useState<string[]>(Object.keys(CHAIN_CONFIGS).filter(chain => !chain.includes('TESTNET') && !chain.includes('SEPOLIA') && !chain.includes('GOERLI') && !chain.includes('MUMBAI') && !chain.includes('FUJI')));
   const [checkBalances, setCheckBalances] = useState(true);
-  const [importMode, setImportMode] = useState<'manual' | 'text'>('manual');
+  const [importMode, setImportMode] = useState<'manual' | 'text' | 'file'>('manual');
+  const [showImportModal, setShowImportModal] = useState(false);
   const [textImport, setTextImport] = useState('');
   const [networkFilter, setNetworkFilter] = useState<'all' | 'mainnet' | 'testnet'>('mainnet');
   
@@ -379,6 +381,7 @@ export default function MnemonicInput() {
                 : 'bg-nexus-glass text-white/60 border border-nexus-border hover:bg-white/5'
             }`}
           >
+            <Key className="w-4 h-4 mr-2 inline" />
             Manual Entry
           </button>
           <button
@@ -391,6 +394,17 @@ export default function MnemonicInput() {
           >
             <FileText className="w-4 h-4 mr-2 inline" />
             Bulk Import
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              importMode === 'file'
+                ? 'bg-nexus-accent/20 text-nexus-accent border border-nexus-accent/30'
+                : 'bg-nexus-glass text-white/60 border border-nexus-border hover:bg-white/5'
+            }`}
+          >
+            <Upload className="w-4 h-4 mr-2 inline" />
+            Import File
           </button>
         </div>
       </motion.div>
@@ -631,6 +645,14 @@ another mnemonic phrase here | another passphrase`}
           )}
         </button>
       </motion.div>
+
+      {/* Import Wallet Modal */}
+      <AnimatePresence>
+        <ImportWallet 
+          isOpen={showImportModal} 
+          onClose={() => setShowImportModal(false)} 
+        />
+      </AnimatePresence>
     </div>
   );
 }

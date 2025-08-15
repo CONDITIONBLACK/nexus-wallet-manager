@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWallets: (filters?: any) => ipcRenderer.invoke('get-wallets', filters),
   updateBalance: (walletId: number, balance: string) => ipcRenderer.invoke('update-balance', walletId, balance),
   exportWallet: (walletId: number, format: string) => ipcRenderer.invoke('export-wallet', walletId, format),
+  importWalletFile: (fileData: string, password?: string) => ipcRenderer.invoke('import-wallet-file', fileData, password),
   deleteWallet: (walletId: number) => ipcRenderer.invoke('delete-wallet', walletId),
   deleteWallets: (walletIds: number[]) => ipcRenderer.invoke('delete-wallets', walletIds),
   
