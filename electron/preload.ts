@@ -38,4 +38,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableBiometricAuth: () => ipcRenderer.invoke('disable-biometric-auth'),
   isBiometricAuthEnabled: () => ipcRenderer.invoke('is-biometric-auth-enabled'),
   authenticateAndGetPassword: () => ipcRenderer.invoke('authenticate-and-get-password'),
+  
+  // Counter-forensics security
+  startSecurityMonitoring: () => ipcRenderer.invoke('start-security-monitoring'),
+  stopSecurityMonitoring: () => ipcRenderer.invoke('stop-security-monitoring'),
+  getSecurityMetrics: () => ipcRenderer.invoke('get-security-metrics'),
+  performSecurityCheck: () => ipcRenderer.invoke('perform-security-check'),
+  checkScreenRecording: () => ipcRenderer.invoke('check-screen-recording'),
+  secureMemoryWipe: () => ipcRenderer.invoke('secure-memory-wipe'),
 });

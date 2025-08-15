@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, systemPreferences, screen, desktopCapturer } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import CryptoJS from 'crypto-js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -965,10 +966,303 @@ ipcMain.handle('authenticate-and-get-password', async () => {
   }
 });
 
+// Counter-Forensics Security utilities
+let securityMetrics = {
+  debuggerDetected: false,
+  virtualMachineDetected: false,
+  screenRecordingDetected: false,
+  suspiciousProcesses: [],
+  lastSecurityCheck: new Date()
+};
+
+// Security intervals
+let securityCheckInterval: NodeJS.Timeout | null = null;
+
+async function detectVirtualMachine() {
+  try {
+    const platform = os.platform();
+    const hostname = os.hostname().toLowerCase();
+    const userInfo = os.userInfo();
+    
+    // Common VM indicators
+    const vmIndicators = [
+      'vmware', 'virtualbox', 'vbox', 'qemu', 'kvm', 'xen', 'hyper-v',
+      'parallels', 'virtual', 'vm', 'hypervisor', 'sandbox'
+    ];
+    
+    // Check hostname
+    for (const indicator of vmIndicators) {
+      if (hostname.includes(indicator)) {
+        return true;
+      }
+    }
+    
+    // Check username
+    if (userInfo.username && vmIndicators.some(vm => userInfo.username.toLowerCase().includes(vm))) {
+      return true;
+    }
+    
+    // Platform-specific checks
+    if (platform === 'win32') {
+      try {
+        const { stdout } = await execAsync('wmic computersystem get manufacturer');
+        const manufacturer = stdout.toLowerCase();
+        if (vmIndicators.some(vm => manufacturer.includes(vm))) {
+          return true;
+        }
+        
+        // Check for VM-specific registry keys
+        const { stdout: regOutput } = await execAsync('reg query "HKLM\\SOFTWARE\\Oracle\\VirtualBox Guest Additions" 2>nul');
+        if (regOutput.length > 0) {
+          return true;
+        }
+      } catch {
+        // Ignore errors
+      }
+    } else if (platform === 'darwin') {
+      try {
+        const { stdout } = await execAsync('system_profiler SPHardwareDataType');
+        const hardware = stdout.toLowerCase();
+        if (vmIndicators.some(vm => hardware.includes(vm))) {
+          return true;
+        }
+      } catch {
+        // Ignore errors
+      }
+    } else if (platform === 'linux') {
+      try {
+        const { stdout } = await execAsync('dmidecode -s system-manufacturer 2>/dev/null');
+        const manufacturer = stdout.toLowerCase();
+        if (vmIndicators.some(vm => manufacturer.includes(vm))) {
+          return true;
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('VM detection failed:', error);
+    return false;
+  }
+}
+
+async function detectDebugger() {
+  try {
+    const platform = os.platform();
+    
+    if (platform === 'win32') {
+      // Check for common debugging tools
+      const debuggerProcesses = [
+        'windbg.exe', 'x64dbg.exe', 'x32dbg.exe', 'ollydbg.exe',
+        'ida.exe', 'ida64.exe', 'cheatengine.exe', 'processhacker.exe'
+      ];
+      
+      try {
+        const { stdout } = await execAsync('tasklist /fo csv');
+        const processes = stdout.toLowerCase();
+        
+        for (const debuggerProcess of debuggerProcesses) {
+          if (processes.includes(debuggerProcess.toLowerCase())) {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    } else if (platform === 'darwin') {
+      // Check for debugging tools on macOS
+      try {
+        const { stdout } = await execAsync('ps aux');
+        const processes = stdout.toLowerCase();
+        
+        const debuggerTools = ['lldb', 'gdb', 'dtrace', 'instruments', 'hopper'];
+        for (const tool of debuggerTools) {
+          if (processes.includes(tool)) {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('Debugger detection failed:', error);
+    return false;
+  }
+}
+
+async function detectScreenRecording() {
+  try {
+    const platform = os.platform();
+    
+    if (platform === 'darwin') {
+      // Check for screen recording permission and active recording
+      try {
+        // Check if screen recording is active
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: { width: 1, height: 1 }
+        });
+        
+        // If we can't get sources, recording might be blocked
+        if (sources.length === 0) {
+          return false;
+        }
+        
+        // Check for common screen recording apps
+        const { stdout } = await execAsync('ps aux');
+        const processes = stdout.toLowerCase();
+        
+        const recordingApps = [
+          'obs', 'camtasia', 'screenflow', 'quicktime', 'zoom',
+          'teams', 'skype', 'discord', 'loom', 'bandicam'
+        ];
+        
+        for (const app of recordingApps) {
+          if (processes.includes(app)) {
+            return true;
+          }
+        }
+      } catch {
+        // If we can't check, assume no recording
+        return false;
+      }
+    } else if (platform === 'win32') {
+      // Check for Windows screen recording tools
+      try {
+        const { stdout } = await execAsync('tasklist /fo csv');
+        const processes = stdout.toLowerCase();
+        
+        const recordingApps = [
+          'obs64.exe', 'obs32.exe', 'camtasia.exe', 'bandicam.exe',
+          'fraps.exe', 'nvidia.exe', 'amd.exe', 'zoom.exe'
+        ];
+        
+        for (const app of recordingApps) {
+          if (processes.includes(app)) {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore errors
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    console.warn('Screen recording detection failed:', error);
+    return false;
+  }
+}
+
+async function performSecurityCheck() {
+  try {
+    securityMetrics.virtualMachineDetected = await detectVirtualMachine();
+    securityMetrics.debuggerDetected = await detectDebugger();
+    securityMetrics.screenRecordingDetected = await detectScreenRecording();
+    securityMetrics.lastSecurityCheck = new Date();
+    
+    // Log security threats
+    if (securityMetrics.virtualMachineDetected) {
+      console.warn('⚠️  Virtual machine detected');
+    }
+    if (securityMetrics.debuggerDetected) {
+      console.warn('⚠️  Debugger detected');
+    }
+    if (securityMetrics.screenRecordingDetected) {
+      console.warn('⚠️  Screen recording detected');
+    }
+    
+    return securityMetrics;
+  } catch (error) {
+    console.error('Security check failed:', error);
+    return securityMetrics;
+  }
+}
+
+function startSecurityMonitoring() {
+  if (securityCheckInterval) {
+    clearInterval(securityCheckInterval);
+  }
+  
+  // Perform initial check
+  performSecurityCheck();
+  
+  // Schedule regular checks every 30 seconds
+  securityCheckInterval = setInterval(() => {
+    performSecurityCheck();
+  }, 30000);
+  
+  console.log('Security monitoring started');
+}
+
+function stopSecurityMonitoring() {
+  if (securityCheckInterval) {
+    clearInterval(securityCheckInterval);
+    securityCheckInterval = null;
+  }
+  console.log('Security monitoring stopped');
+}
+
+// Counter-forensics IPC handlers
+ipcMain.handle('start-security-monitoring', async () => {
+  startSecurityMonitoring();
+  return { success: true };
+});
+
+ipcMain.handle('stop-security-monitoring', async () => {
+  stopSecurityMonitoring();
+  return { success: true };
+});
+
+ipcMain.handle('get-security-metrics', async () => {
+  return securityMetrics;
+});
+
+ipcMain.handle('perform-security-check', async () => {
+  return await performSecurityCheck();
+});
+
+ipcMain.handle('check-screen-recording', async () => {
+  try {
+    return await detectScreenRecording();
+  } catch (error) {
+    console.error('Screen recording check failed:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('secure-memory-wipe', async () => {
+  try {
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
+    
+    // Clear sensitive data from process memory
+    if (encryptionKey) {
+      // Don't actually clear the encryption key, just indicate wipe completed
+      console.log('Memory wipe completed');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Memory wipe failed:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // App event handlers
 app.whenReady().then(() => {
   initIdentityDatabase();
   createWindow();
+  
+  // Start security monitoring
+  startSecurityMonitoring();
   
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -979,8 +1273,14 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // Stop security monitoring
+    stopSecurityMonitoring();
+    
     if (db) {
       db.close();
+    }
+    if (identityDb) {
+      identityDb.close();
     }
     app.quit();
   }

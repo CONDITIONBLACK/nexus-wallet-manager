@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Server, Plus, X, Shield, Database, 
-  Zap, Fingerprint, Lock, Eye, EyeOff
+  Zap, Fingerprint, Lock, Eye, EyeOff, Monitor
 } from 'lucide-react';
 import { useStore } from '../stores/appStore';
 import { toast } from 'react-hot-toast';
 import { electronAPI } from '../utils/electron';
 import { biometricAuth } from '../services/biometricAuth';
+import SecurityStatus from './SecurityStatus';
 
 export default function SettingsPanel() {
   const { rpcNodes, addRpcNode, removeRpcNode, clearInvalidWallets, clearAllData } = useStore();
@@ -22,6 +23,7 @@ export default function SettingsPanel() {
   const [biometricPassword, setBiometricPassword] = useState('');
   const [showBiometricPassword, setShowBiometricPassword] = useState(false);
   const [isProcessingBiometric, setIsProcessingBiometric] = useState(false);
+  const [showSecurityStatus, setShowSecurityStatus] = useState(false);
 
   useEffect(() => {
     checkBiometricStatus();
@@ -316,6 +318,30 @@ export default function SettingsPanel() {
               )}
             </div>
           )}
+          
+          {/* Counter-Forensics Security */}
+          <div className="border-t border-nexus-glass-border pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Monitor className="w-5 h-5 text-red-400" />
+                <div>
+                  <p className="text-sm font-medium text-white">
+                    Counter-Forensics
+                  </p>
+                  <p className="text-xs text-white/50">
+                    Advanced security monitoring and threat detection
+                  </p>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setShowSecurityStatus(true)}
+                className="glass-button-primary px-4 py-2 text-sm"
+              >
+                View Status
+              </button>
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -522,6 +548,14 @@ export default function SettingsPanel() {
           Built with cutting-edge technology and uncompromising security.
         </p>
       </motion.div>
+      
+      {/* Security Status Modal */}
+      <AnimatePresence>
+        <SecurityStatus
+          isOpen={showSecurityStatus}
+          onClose={() => setShowSecurityStatus(false)}
+        />
+      </AnimatePresence>
     </div>
   );
 }

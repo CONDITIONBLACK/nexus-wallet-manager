@@ -5,6 +5,7 @@ import AuthScreen from './components/AuthScreen';
 import Dashboard from './components/Dashboard';
 import APIStatusNotification from './components/APIStatusNotification';
 import { useStore } from './stores/appStore';
+import { counterForensics } from './services/counterForensics';
 
 function App() {
   const { isAuthenticated, isInitialized, initialize } = useStore();
@@ -12,6 +13,33 @@ function App() {
 
   useEffect(() => {
     initialize();
+    
+    // Initialize counter-forensics security
+    if (typeof window !== 'undefined' && window.electronAPI) {
+      // @ts-ignore
+      window.electronAPI.startSecurityMonitoring();
+    }
+    
+    // Listen for security threats
+    const handleSecurityThreat = (event: CustomEvent) => {
+      console.warn('Security threat detected:', event.detail);
+      // Could show a warning to the user or take protective action
+    };
+    
+    window.addEventListener('security-threat', handleSecurityThreat as EventListener);
+    
+    return () => {
+      window.removeEventListener('security-threat', handleSecurityThreat as EventListener);
+      
+      // Cleanup security monitoring
+      if (typeof window !== 'undefined' && window.electronAPI) {
+        // @ts-ignore
+        window.electronAPI.stopSecurityMonitoring();
+      }
+      
+      // Cleanup counter-forensics
+      counterForensics.cleanup();
+    };
   }, [initialize]);
 
   useEffect(() => {
