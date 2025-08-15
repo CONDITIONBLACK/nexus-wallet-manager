@@ -5,6 +5,9 @@ import { toast } from 'react-hot-toast';
 import { useStore } from '../stores/appStore';
 import { electronAPI } from '../utils/electron';
 import { biometricAuth } from '../services/biometricAuth';
+import ParticleField from './ParticleField';
+import FloatingParticles from './FloatingParticles';
+import GeometricParticles from './GeometricParticles';
 
 export default function AuthScreen() {
   const [password, setPassword] = useState('');
@@ -125,13 +128,36 @@ export default function AuthScreen() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen flex items-center justify-center p-8"
+      className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden"
     >
+      {/* Particle Effects */}
+      <ParticleField
+        density={30}
+        speed={0.3}
+        colors={['#00FF88', '#00CCFF', '#FFFFFF']}
+        interactive={true}
+        className="z-0"
+      />
+      
+      <FloatingParticles
+        count={12}
+        colors={['#00FF88', '#00CCFF', '#FFFFFF', '#FF6B6B']}
+        speed="slow"
+        size="medium"
+        className="z-0"
+      />
+      
+      <GeometricParticles
+        count={8}
+        colors={['#00FF88', '#00CCFF']}
+        interactive={true}
+        className="z-0"
+      />
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ delay: 0.1 }}
-        className="w-full max-w-md"
+        className="w-full max-w-md relative z-10"
       >
         {/* Logo and title */}
         <div className="text-center mb-8">

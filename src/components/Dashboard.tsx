@@ -13,6 +13,7 @@ import SettingsPanel from './SettingsPanel';
 import PortfolioOverview from './PortfolioOverview';
 import WalletWatcher from './WalletWatcher';
 import IdentityManager from './IdentityManager';
+import FloatingParticles from './FloatingParticles';
 import { toast } from 'react-hot-toast';
 
 type View = 'portfolio' | 'wallets' | 'watcher' | 'import' | 'settings';
@@ -43,12 +44,21 @@ export default function Dashboard() {
   const totalValue = wallets.reduce((sum, wallet) => sum + (wallet.usdValue || 0), 0);
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex relative overflow-hidden">
+      {/* Subtle Dashboard Particle Effects */}
+      <FloatingParticles
+        count={8}
+        colors={['#00FF88', '#00CCFF']}
+        speed="slow"
+        size="small"
+        className="z-0 opacity-30"
+      />
+      
       {/* Sidebar */}
       <motion.aside
         initial={{ x: -100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
-        className="w-64 glass-panel m-4 p-6 flex flex-col"
+        className="w-64 glass-panel m-4 p-6 flex flex-col relative z-10"
       >
         {/* Logo */}
         <div className="flex items-center space-x-3 mb-6">
@@ -174,7 +184,7 @@ export default function Dashboard() {
       </motion.aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col relative z-10">
         {/* Header */}
         <motion.header
           initial={{ y: -20, opacity: 0 }}
