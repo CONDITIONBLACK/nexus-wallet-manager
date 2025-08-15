@@ -9,10 +9,22 @@ interface Wallet extends DerivedWallet {
   lastChecked?: Date;
 }
 
+interface Identity {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastAccessed: string;
+  hasPassword: boolean;
+  isActive: boolean;
+}
+
 interface AppState {
   // Auth state
   isAuthenticated: boolean;
   isInitialized: boolean;
+  
+  // Identity state
+  currentIdentity: Identity | null;
   
   // Wallet state
   wallets: Wallet[];
@@ -30,6 +42,10 @@ interface AppState {
   initialize: () => void;
   authenticate: (password: string) => Promise<boolean>;
   logout: () => void;
+  
+  // Identity actions
+  loadWallets: () => Promise<void>;
+  setCurrentIdentity: (identity: Identity | null) => void;
   
   // Wallet actions
   addWallets: (wallets: Wallet[]) => void;
@@ -51,10 +67,11 @@ interface AppState {
   removeRpcNode: (chain: string, url: string) => void;
 }
 
-export const useStore = create<AppState>((set) => ({
+export const useStore = create<AppState>((set, get) => ({
   // Initial state
   isAuthenticated: false,
   isInitialized: false,
+  currentIdentity: null,
   wallets: [],
   selectedWallet: null,
   isLoading: false,
@@ -80,9 +97,11 @@ export const useStore = create<AppState>((set) => ({
       const success = await electronAPI.verifyPassword(password);
       if (success) {
         set({ isAuthenticated: true });
-        // Load existing wallets
-        const wallets = await electronAPI.getWallets();
-        set({ wallets });
+        // Load current identity and wallets
+        // @ts-ignore
+        const currentIdentity = await electronAPI.getCurrentIdentity();
+        set({ currentIdentity });
+        await get().loadWallets();
       }
       return success;
     } catch (error) {
@@ -94,11 +113,25 @@ export const useStore = create<AppState>((set) => ({
   logout: () => {
     set({
       isAuthenticated: false,
+      currentIdentity: null,
       wallets: [],
       selectedWallet: null,
       mnemonics: [],
       currentMnemonic: '',
     });
+  },
+  
+  loadWallets: async () => {
+    try {
+      const wallets = await electronAPI.getWallets();
+      set({ wallets });
+    } catch (error) {
+      console.error('Load wallets error:', error);
+    }
+  },
+  
+  setCurrentIdentity: (identity: Identity | null) => {
+    set({ currentIdentity: identity });
   },
   
   addWallets: (wallets: Wallet[]) => {

@@ -23,4 +23,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System operations
   showSaveDialog: (options: any) => ipcRenderer.invoke('show-save-dialog', options),
   showOpenDialog: (options: any) => ipcRenderer.invoke('show-open-dialog', options),
+  
+  // Identity management
+  getIdentities: () => ipcRenderer.invoke('get-identities'),
+  createIdentity: (data: any) => ipcRenderer.invoke('create-identity', data),
+  switchIdentity: (identityId: string, password: string) => ipcRenderer.invoke('switch-identity', identityId, password),
+  deleteIdentity: (identityId: string) => ipcRenderer.invoke('delete-identity', identityId),
+  getCurrentIdentity: () => ipcRenderer.invoke('get-current-identity'),
 });

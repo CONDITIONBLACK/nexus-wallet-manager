@@ -11,14 +11,49 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let db: Database.Database | null = null;
 let encryptionKey: string | null = null;
+let currentIdentityId: string | null = null;
+let identityDb: Database.Database | null = null;
 
-// Database initialization
-function initDatabase(password: string) {
+// Identity management
+function initIdentityDatabase() {
+  try {
+    const userDataPath = app.getPath('userData');
+    const identityDbPath = path.join(userDataPath, 'nexus-identities.db');
+    
+    identityDb = new Database(identityDbPath);
+    identityDb.pragma('journal_mode = WAL');
+    
+    // Create identities table
+    identityDb.exec(`
+      CREATE TABLE IF NOT EXISTS identities (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT 0
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_identities_name ON identities(name);
+    `);
+    
+    console.log('Identity database initialized');
+    return true;
+  } catch (error) {
+    console.error('Identity database initialization error:', error);
+    throw error;
+  }
+}
+
+// Database initialization for specific identity
+function initDatabase(password: string, identityId?: string) {
   try {
     const userDataPath = app.getPath('userData');
     console.log('User data path:', userDataPath);
     
-    const dbPath = path.join(userDataPath, 'nexus-wallets.db');
+    // If no identityId provided, use default database (legacy support)
+    const dbName = identityId ? `nexus-${identityId}.db` : 'nexus-wallets.db';
+    const dbPath = path.join(userDataPath, dbName);
     console.log('Database path:', dbPath);
     
     db = new Database(dbPath);
@@ -101,6 +136,7 @@ function initDatabase(password: string) {
   
     // Generate encryption key from password
     encryptionKey = CryptoJS.SHA256(password).toString();
+    currentIdentityId = identityId || 'default';
     
     console.log('Database initialized successfully');
     return true;
@@ -492,8 +528,169 @@ ipcMain.handle('show-open-dialog', async (_, options: any) => {
   }
 });
 
+// Identity management IPC handlers
+ipcMain.handle('get-identities', async () => {
+  if (!identityDb) {
+    initIdentityDatabase();
+  }
+  
+  try {
+    const identities = identityDb!.prepare(`
+      SELECT id, name, created_at, last_accessed, is_active 
+      FROM identities 
+      ORDER BY last_accessed DESC
+    `).all();
+    
+    return identities.map((identity: any) => ({
+      id: identity.id,
+      name: identity.name,
+      createdAt: identity.created_at,
+      lastAccessed: identity.last_accessed,
+      hasPassword: true,
+      isActive: Boolean(identity.is_active)
+    }));
+  } catch (error) {
+    console.error('Get identities error:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('create-identity', async (_, { name, password }: { name: string, password: string }) => {
+  if (!identityDb) {
+    initIdentityDatabase();
+  }
+  
+  try {
+    const identityId = `identity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const passwordHash = bcrypt.hashSync(password, 10);
+    
+    // Insert new identity
+    identityDb!.prepare(`
+      INSERT INTO identities (id, name, password_hash)
+      VALUES (?, ?, ?)
+    `).run(identityId, name, passwordHash);
+    
+    // Initialize the database for this identity
+    initDatabase(password, identityId);
+    
+    return { success: true, identityId };
+  } catch (error: any) {
+    console.error('Create identity error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('switch-identity', async (_, identityId: string, password: string) => {
+  if (!identityDb) {
+    initIdentityDatabase();
+  }
+  
+  try {
+    // Verify identity exists and password is correct
+    const identity = identityDb!.prepare('SELECT * FROM identities WHERE id = ?').get(identityId) as any;
+    if (!identity) {
+      return { success: false, error: 'Identity not found' };
+    }
+    
+    const isValidPassword = bcrypt.compareSync(password, identity.password_hash);
+    if (!isValidPassword) {
+      return { success: false, error: 'Invalid password' };
+    }
+    
+    // Close current database if open
+    if (db) {
+      db.close();
+      db = null;
+    }
+    
+    // Set all identities to inactive
+    identityDb!.prepare('UPDATE identities SET is_active = 0').run();
+    
+    // Set selected identity as active and update last accessed
+    identityDb!.prepare(`
+      UPDATE identities 
+      SET is_active = 1, last_accessed = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(identityId);
+    
+    // Initialize database for the selected identity
+    initDatabase(password, identityId);
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('Switch identity error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-identity', async (_, identityId: string) => {
+  if (!identityDb) {
+    return { success: false, error: 'Identity database not initialized' };
+  }
+  
+  try {
+    // Don't allow deleting active identity
+    const identity = identityDb.prepare('SELECT is_active FROM identities WHERE id = ?').get(identityId) as any;
+    if (identity?.is_active) {
+      return { success: false, error: 'Cannot delete active identity' };
+    }
+    
+    // Delete identity record
+    identityDb.prepare('DELETE FROM identities WHERE id = ?').run(identityId);
+    
+    // Delete the database file
+    const userDataPath = app.getPath('userData');
+    const dbPath = path.join(userDataPath, `nexus-${identityId}.db`);
+    
+    try {
+      const fs = require('fs');
+      if (fs.existsSync(dbPath)) {
+        fs.unlinkSync(dbPath);
+      }
+      // Also delete WAL and SHM files
+      ['-wal', '-shm'].forEach(suffix => {
+        const walPath = dbPath + suffix;
+        if (fs.existsSync(walPath)) {
+          fs.unlinkSync(walPath);
+        }
+      });
+    } catch (fsError) {
+      console.warn('Could not delete database files:', fsError);
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('Delete identity error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-current-identity', async () => {
+  if (!identityDb) {
+    return null;
+  }
+  
+  try {
+    const identity = identityDb.prepare('SELECT * FROM identities WHERE is_active = 1').get() as any;
+    if (!identity) return null;
+    
+    return {
+      id: identity.id,
+      name: identity.name,
+      createdAt: identity.created_at,
+      lastAccessed: identity.last_accessed,
+      hasPassword: true,
+      isActive: true
+    };
+  } catch (error) {
+    console.error('Get current identity error:', error);
+    return null;
+  }
+});
+
 // App event handlers
 app.whenReady().then(() => {
+  initIdentityDatabase();
   createWindow();
   
   app.on('activate', () => {

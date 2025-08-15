@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Wallet, Plus, Search, RefreshCw, Download, 
   Settings, LogOut, TrendingUp, Eye,
-  Grid, List, ChevronDown, Shield, Filter
+  Grid, List, ChevronDown, Shield, Filter, Users
 } from 'lucide-react';
 import { useStore } from '../stores/appStore';
 import MnemonicInput from './MnemonicInput';
@@ -12,6 +12,7 @@ import WalletDetail from './WalletDetail';
 import SettingsPanel from './SettingsPanel';
 import PortfolioOverview from './PortfolioOverview';
 import WalletWatcher from './WalletWatcher';
+import IdentityManager from './IdentityManager';
 import { toast } from 'react-hot-toast';
 
 type View = 'portfolio' | 'wallets' | 'watcher' | 'import' | 'settings';
@@ -22,14 +23,21 @@ export default function Dashboard() {
   const [selectedChain, setSelectedChain] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [balancesOnly, setBalancesOnly] = useState(false);
+  const [showIdentityManager, setShowIdentityManager] = useState(false);
   
-  const { wallets, selectedWallet, logout } = useStore();
+  const { wallets, selectedWallet, currentIdentity, logout, setCurrentIdentity, loadWallets } = useStore();
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to logout?')) {
       logout();
       toast.success('Logged out successfully');
     }
+  };
+  
+  const handleIdentitySwitch = async (identity: any, password: string) => {
+    setCurrentIdentity(identity);
+    await loadWallets();
+    toast.success(`Switched to ${identity.name}`);
   };
 
   const totalValue = wallets.reduce((sum, wallet) => sum + (wallet.usdValue || 0), 0);
@@ -43,7 +51,7 @@ export default function Dashboard() {
         className="w-64 glass-panel m-4 p-6 flex flex-col"
       >
         {/* Logo */}
-        <div className="flex items-center space-x-3 mb-8">
+        <div className="flex items-center space-x-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-nexus-accent/10 border border-nexus-accent/30 flex items-center justify-center">
             <Shield className="w-6 h-6 text-nexus-accent" />
           </div>
@@ -51,6 +59,28 @@ export default function Dashboard() {
             <h1 className="text-lg font-medium text-white">Nexus</h1>
             <p className="text-xs text-white/50">Wallet Manager</p>
           </div>
+        </div>
+
+        {/* Current Identity */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowIdentityManager(true)}
+            className="w-full glass-panel p-4 hover:bg-white/5 transition-colors group"
+          >
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-lg bg-nexus-cyan/10 border border-nexus-cyan/30">
+                <Users className="w-4 h-4 text-nexus-cyan" />
+              </div>
+              <div className="flex-1 text-left">
+                <h3 className="text-sm font-medium text-white">
+                  {currentIdentity?.name || 'Default Identity'}
+                </h3>
+                <p className="text-xs text-white/50">
+                  Click to manage identities
+                </p>
+              </div>
+            </div>
+          </button>
         </div>
 
         {/* Navigation */}
@@ -321,6 +351,16 @@ export default function Dashboard() {
         {selectedWallet && (
           <WalletDetail />
         )}
+      </AnimatePresence>
+
+      {/* Identity Manager Modal */}
+      <AnimatePresence>
+        <IdentityManager
+          isOpen={showIdentityManager}
+          onClose={() => setShowIdentityManager(false)}
+          onIdentitySelect={handleIdentitySwitch}
+          currentIdentity={currentIdentity}
+        />
       </AnimatePresence>
     </div>
   );
